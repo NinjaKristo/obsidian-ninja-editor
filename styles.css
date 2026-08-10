@@ -1941,115 +1941,45 @@ body.is-mobile .ped-columns {
 	padding-bottom: 6px;
 }
 
-
-.ped-cb-copy {
-	position: absolute;
-	right: 8px;
-	top: 3px;
-	height: 20px;
-	padding: 0 7px;
-	font-family: var(--font-interface);
-	font-size: 11px;
-	line-height: 1;
-	color: var(--text-muted);
-	background: var(--background-primary);
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 5px;
-	cursor: pointer;
-	opacity: 0;
-	transition: opacity 120ms ease, color 120ms ease;
-}
-
-/* stays out of the way until you go near the block */
-.markdown-source-view.mod-cm6 .cm-line.HyperMD-codeblock:hover .ped-cb-copy,
-.markdown-source-view.mod-cm6 .cm-line.ped-cb-head:hover .ped-cb-copy,
-.ped-cb-copy:focus-visible {
-	opacity: 1;
-}
-
-.ped-cb-copy:hover {
-	color: var(--text-normal);
-	background: var(--background-modifier-hover);
-}
-
-.ped-cb-copy.is-done {
-	color: var(--text-success, var(--text-accent));
-}
-
 /* Reading view, so the two do not drift apart */
 .markdown-rendered pre {
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 8px;
 }
 
-/* ---------- code block header ----------
-   One row on the opening fence: the language as a dropdown button, then Copy.
-   Obsidian renders its own `code-block-flair` label for the language too, and
-   two labels for the same thing is what made them collide, so its copy is
-   hidden here and ours (which is clickable) is the one that shows. */
-
-.markdown-source-view.mod-cm6 .cm-line.ped-cb-head .code-block-flair {
-	display: none;
+/* Obsidian's own copy button, restated as the chip Live Preview uses. Its two
+   defaults are the two things that were wrong with ours: `pre:not(:hover)`
+   hides it until you are already on the block, and it is painted in the app's
+   colors, which on a light card in a dark vault means a near-white label over a
+   hover tint that is translucent white. Switching views should not move the
+   button or change what it looks like, so this is the same box and the same
+   palette. `body` on the front of each: a theme's CSS loads after a plugin's,
+   and these have to outrank whatever it says about the same button. */
+body .markdown-rendered pre:not(:hover) > button.copy-code-button {
+	display: inline-flex;
 }
 
-.markdown-source-view.mod-cm6 .cm-line.ped-cb-head {
-	position: relative;
-}
-
-.ped-cb-lang,
-.ped-cb-copy {
-	position: absolute;
-	top: 3px;
+body .markdown-rendered button.copy-code-button {
+	margin: 6px 8px;
+	padding: 0 7px;
 	height: 21px;
+	min-width: 56px;
 	display: inline-flex;
 	align-items: center;
-	gap: 4px;
-	padding: 0 7px;
+	justify-content: center;
 	font-family: var(--font-interface);
 	font-size: 11px;
 	line-height: 1;
-	color: var(--text-muted);
-	background: var(--background-primary);
-	border: 1px solid var(--background-modifier-border);
+	color: var(--pedc-fg, var(--text-muted));
+	background-color: var(--pedc-chip, var(--background-primary));
+	border: 1px solid var(--pedc-border, var(--background-modifier-border));
 	border-radius: 5px;
-	cursor: pointer;
-	white-space: nowrap;
-	transition: opacity 120ms ease, color 120ms ease;
+	transition: background-color 120ms ease, color 120ms ease;
 }
 
-/* Copy is pinned to the right; the language button sits to its left, sized to
-   its own text rather than a guessed offset, so a long name cannot overlap it */
-.ped-cb-copy {
-	right: 8px;
-	opacity: 0;
-}
-
-.ped-cb-lang {
-	right: 62px;
-	opacity: 0.75;
-}
-
-.ped-cb-caret {
-	font-size: 9px;
-	opacity: 0.7;
-}
-
-.markdown-source-view.mod-cm6 .cm-line.ped-cb-head:hover .ped-cb-copy,
-.markdown-source-view.mod-cm6 .cm-line.ped-cb-head:hover .ped-cb-lang,
-.ped-cb-copy:focus-visible,
-.ped-cb-lang:focus-visible {
-	opacity: 1;
-}
-
-.ped-cb-lang:hover,
-.ped-cb-copy:hover {
-	color: var(--text-normal);
-	background: var(--background-modifier-hover);
-	opacity: 1;
-}
-
-.ped-cb-copy.is-done {
-	color: var(--text-success, var(--text-accent));
+body .markdown-rendered button.copy-code-button:hover {
+	color: var(--pedc-fg, var(--text-normal));
+	background-color: color-mix(in srgb, var(--pedc-fg, var(--text-normal)) 14%, var(--pedc-chip, var(--background-primary)));
 }
 
 /* ---------- language picker ----------
@@ -2121,6 +2051,12 @@ input.ped-langpop-search {
 	position: relative;
 }
 
+/* Both chips are painted in the CARD's own colors, never the app's. A code
+   theme is chosen independently of the Obsidian theme, so a light card inside a
+   dark vault is the ordinary case (Vivid is the default). Drawing the chip in
+   --background-primary/--text-normal put near-white text on a near-white card:
+   the button was there, it just could not be read. The fallbacks cover the
+   "default" code theme, where the card IS the app's surface and the two agree. */
 .ped-cb-lang,
 .ped-cb-copy {
 	position: absolute;
@@ -2128,29 +2064,33 @@ input.ped-langpop-search {
 	height: 21px;
 	display: inline-flex;
 	align-items: center;
+	justify-content: center;
 	gap: 4px;
 	padding: 0 7px;
 	font-family: var(--font-interface);
 	font-size: 11px;
 	line-height: 1;
-	color: var(--text-muted);
-	background: var(--background-primary);
-	border: 1px solid var(--background-modifier-border);
+	color: var(--pedc-fg, var(--text-muted));
+	background: var(--pedc-chip, var(--background-primary));
+	border: 1px solid var(--pedc-border, var(--background-modifier-border));
 	border-radius: 5px;
 	cursor: pointer;
 	white-space: nowrap;
-	transition: opacity 120ms ease, color 120ms ease;
+	transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
 }
 
-/* Copy is pinned to the right; the language button sits to its left, sized to
-   its own text rather than a guessed offset, so a long name cannot overlap it */
+/* Copy is pinned to the right and always shown. A button that only exists under
+   the pointer is one you have to already know is there, and on a trackpad it
+   means hunting along the row for it. The width is fixed so "Copied" cannot
+   grow into the language chip, which is also what makes the offset below exact
+   rather than a guess at how wide the label happens to be. */
 .ped-cb-copy {
 	right: 8px;
-	opacity: 0;
+	min-width: 56px;
 }
 
 .ped-cb-lang {
-	right: 62px;
+	right: 70px;
 	opacity: 0.75;
 }
 
@@ -2159,22 +2099,32 @@ input.ped-langpop-search {
 	opacity: 0.7;
 }
 
-.markdown-source-view.mod-cm6 .cm-line.ped-cb-head:hover .ped-cb-copy,
 .markdown-source-view.mod-cm6 .cm-line.ped-cb-head:hover .ped-cb-lang,
-.ped-cb-copy:focus-visible,
 .ped-cb-lang:focus-visible {
 	opacity: 1;
 }
 
+/* Mixed against the chip rather than set to a fixed tint, so one rule darkens a
+   light card and lightens a dark one instead of needing a branch for each. */
 .ped-cb-lang:hover,
 .ped-cb-copy:hover {
-	color: var(--text-normal);
-	background: var(--background-modifier-hover);
+	color: var(--pedc-fg, var(--text-normal));
+	background: color-mix(in srgb, var(--pedc-fg, var(--text-normal)) 14%, var(--pedc-chip, var(--background-primary)));
 	opacity: 1;
 }
 
+.ped-cb-copy:focus-visible,
+.ped-cb-lang:focus-visible {
+	outline: 1px solid var(--pedc-fg, var(--text-accent));
+	outline-offset: 1px;
+}
+
+/* The theme's own green, so the confirmation reads on the card it sits on: the
+   app's --text-success is picked for the app's background, and on a light card
+   in a dark vault it is a bright green on white. */
 .ped-cb-copy.is-done {
-	color: var(--text-success, var(--text-accent));
+	color: var(--pedc-ok, var(--text-success, var(--text-accent)));
+	border-color: color-mix(in srgb, var(--pedc-ok, var(--text-success, var(--text-accent))) 45%, var(--pedc-border, var(--background-modifier-border)));
 }
 
 /* ---------- language picker ----------
@@ -2321,6 +2271,7 @@ body.ped-cbt-one-dark {
 	--pedc-operator: #56b6c2;
 	--pedc-border: #3e4451;
 	--pedc-chip: #3a3f4b;
+	--pedc-ok: #98c379;
 }
 
 body.ped-cbt-dracula {
@@ -2338,6 +2289,7 @@ body.ped-cbt-dracula {
 	--pedc-operator: #ff79c6;
 	--pedc-border: #44475a;
 	--pedc-chip: #44475a;
+	--pedc-ok: #50fa7b;
 }
 
 body.ped-cbt-monokai {
@@ -2355,6 +2307,7 @@ body.ped-cbt-monokai {
 	--pedc-operator: #f92672;
 	--pedc-border: #3e3d32;
 	--pedc-chip: #3e3d32;
+	--pedc-ok: #a6e22e;
 }
 
 body.ped-cbt-github-dark {
@@ -2372,6 +2325,7 @@ body.ped-cbt-github-dark {
 	--pedc-operator: #ff7b72;
 	--pedc-border: #30363d;
 	--pedc-chip: #21262d;
+	--pedc-ok: #7ee787;
 }
 
 body.ped-cbt-vivid {
@@ -2388,6 +2342,7 @@ body.ped-cbt-vivid {
 	--pedc-operator: #57606a;
 	--pedc-border: #dcdcd6;
 	--pedc-chip: #ffffff;
+	--pedc-ok: #067d17;
 	--pedc-gutter: #8b8b83;
 }
 
@@ -2462,20 +2417,6 @@ body.ped-cbt .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-meta {
 
 body.ped-cbt .markdown-source-view.mod-cm6 .HyperMD-codeblock .cm-operator {
 	color: var(--pedc-operator);
-}
-
-/* the header chips have to flip with the surface */
-body.ped-cb-dark .ped-cb-lang,
-body.ped-cb-dark .ped-cb-copy {
-	color: var(--pedc-fg);
-	background: var(--pedc-chip);
-	border-color: var(--pedc-border);
-}
-
-body.ped-cb-dark .ped-cb-lang:hover,
-body.ped-cb-dark .ped-cb-copy:hover {
-	color: #fff;
-	background: color-mix(in srgb, #fff 12%, var(--pedc-chip));
 }
 
 /* Reading view, kept in step */
