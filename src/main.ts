@@ -3602,7 +3602,9 @@ export default class PowerEditorPlugin extends Plugin {
 			ed.setCursor({ line: at.line + lines.length - 1, ch: lines[lines.length - 1].length });
 		} else {
 			const line = ed.getLine(at.line);
-			const run = written.map((w, i) => (i ? listContinuation(line, i) + w : w)).join("");
+			// a link written straight onto the end of a word reads as part of it
+			const lead = /\S$/.test(line.slice(0, at.ch)) ? " " : "";
+			const run = lead + written.map((w, i) => (i ? listContinuation(line, i) + w : w)).join("");
 			ed.replaceRange(run, at);
 			const tail = run.slice(run.lastIndexOf("\n") + 1);
 			ed.setCursor(
