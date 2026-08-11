@@ -120,6 +120,27 @@ export function continueList(line: string): { insert: string } | { clear: string
 	return null;
 }
 
+/**
+ * The break between the items of a run being inserted at once, `step` items
+ * along: a plain newline in ordinary text, and one carrying the list's own
+ * marker inside a list, so four files picked together land as four bullets
+ * rather than as one bullet holding four links.
+ *
+ * Unlike continueList this does not ask whether the item has any text yet.
+ * That question is about ending a list on a second Enter, and here the run
+ * itself is the text. A checklist continues as an unticked box, which is what
+ * Obsidian's own Enter does and what a list of attachments wants.
+ */
+export function listContinuation(line: string, step: number): string {
+	const tm = line.match(/^(\s*)([-*+])[ \t]+\[.\](?:[ \t]+|$)/);
+	if (tm) return `\n${tm[1]}${tm[2]} [ ] `;
+	const om = line.match(/^(\s*)(\d+)([.)])(?:[ \t]+|$)/);
+	if (om) return `\n${om[1]}${Number(om[2]) + step}${om[3]} `;
+	const um = line.match(/^(\s*)([-*+])(?:[ \t]+|$)/);
+	if (um) return `\n${um[1]}${um[2]} `;
+	return "\n";
+}
+
 /** Parse an ordered-list line ("  2) text"), or null when it isn't one. */
 export function orderedListInfo(line: string): OrderedInfo | null {
 	const m = line.match(/^(\s*)(\d+)([.)])\s/);

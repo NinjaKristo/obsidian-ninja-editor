@@ -116,8 +116,17 @@ export function freePath(folder: string, name: string, taken: (path: string) => 
 	return join(`${stem} ${new Date().toISOString().replace(/\D/g, "")}${suffix}`);
 }
 
-/** Types Obsidian draws in the page itself. A PDF among them is the point of
- *  all this: embedded, it reads on the page instead of opening a tab. */
+/**
+ * How a PDF is written into a note.
+ *
+ * "link" is the default because an embedded PDF is a scrolling multi-page
+ * viewer, and a note listing four attachments under a heading would be four
+ * documents deep instead of four lines long. A link is one line, so the list
+ * stays a list, and the document opens when it is actually wanted.
+ */
+export type PdfInsert = "link" | "embed";
+
+/** Types Obsidian draws in the page itself. */
 const EMBEDDABLE = new Set([
 	"pdf",
 	"md",
@@ -131,9 +140,13 @@ const EMBEDDABLE = new Set([
  *  screenshot pasted into a note is not a document filed with it. */
 const IMAGES = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "avif"]);
 
-/** True when Obsidian renders this file in place rather than as a link. */
-export function isEmbeddable(name: string): boolean {
-	return EMBEDDABLE.has(extOf(name));
+/** True when this file is written into the note as an embed rather than a
+ *  link. A picture or a recording is its own content and belongs on the page;
+ *  a PDF is a document, and that is the setting's call. */
+export function isEmbeddable(name: string, pdf: PdfInsert): boolean {
+	const ext = extOf(name);
+	if (ext === "pdf") return pdf === "embed";
+	return EMBEDDABLE.has(ext);
 }
 
 /** True for the picture types, by name or by the type the browser reports. */
@@ -151,8 +164,34 @@ export function isImageFile(name: string, mimeType = ""): boolean {
  * `.docx` written as an embed renders as an empty frame with nothing in it,
  * which reads as a broken link rather than as an attachment.
  */
-export function attachmentMarkdown(link: string, name: string): string {
-	const embed = isEmbeddable(name);
-	if (embed) return link.startsWith("!") ? link : "!" + link;
+export function attachmentMarkdown(link: string, name: string, pdf: PdfInsert): string {
+	if (isEmbeddable(name, pdf)) return link.startsWith("!") ? link : "!" + link;
 	return link.startsWith("!") ? link.slice(1) : link;
+}
+
+const FENCE_AT = /^\s*(```|~~~)/;
+const PDF_WIKI_EMBED = /!(\[\[[^\]]*\.pdf[^\]]*\]\])/gi;
+const PDF_MD_EMBED = /!(\[[^\]]*\]\([^)]*\.pdf[^)]*\))/gi;
+
+/**
+ * Turn PDF embeds already written into a note back into links, for the notes
+ * that were written before the setting existed or under the other choice.
+ *
+ * Only the leading `!` goes, so an alias, a `#page=` subpath, and the link's
+ * own form all survive. Fenced code is skipped: a note explaining the syntax
+ * has embeds in it that are examples rather than attachments.
+ */
+export function unembedPdfs(text: string): { text: string; count: number } {
+	let count = 0;
+	let fenced = false;
+	const drop = (line: string) =>
+		line.replace(PDF_WIKI_EMBED, (_m, keep: string) => (count++, keep)).replace(PDF_MD_EMBED, (_m, keep: string) => (count++, keep));
+	const out = text.split("\n").map((line) => {
+		if (FENCE_AT.test(line)) {
+			fenced = !fenced;
+			return line;
+		}
+		return fenced ? line : drop(line);
+	});
+	return { text: out.join("\n"), count };
 }

@@ -42,6 +42,7 @@ import {
 	nameOf,
 	safeFileName,
 	stemOf,
+	unembedPdfs,
 } from "../src/files";
 import {
 	editedAt,
@@ -88,6 +89,7 @@ import {
 	sweepHighlights,
 	hasAnyMark,
 	headingLevel,
+	listContinuation,
 	listKind,
 	orderedListInfo,
 	setAlign,
@@ -1564,17 +1566,67 @@ eq(moveItem(["a", "b"], 5, 0).join(""), "ab", "an out-of-range source is ignored
 	eq(freePath("", "Notes", () => false), "Notes", "and nothing is renamed when nothing collides");
 
 	// how it is written into the note
-	eq(isEmbeddable("Offer.pdf"), true, "a PDF renders on the page");
-	eq(isEmbeddable("Photo.PNG"), true, "so does an image, whatever its case");
-	eq(isEmbeddable("Rates.xlsx"), false, "a spreadsheet does not");
+	// A PDF is a link by default: embedded it is a scrolling multi-page viewer,
+	// and four attachments under a heading would be four documents deep.
+	eq(isEmbeddable("Offer.pdf", "link"), false, "a PDF is a link you click, not a preview you scroll");
+	eq(isEmbeddable("Offer.pdf", "embed"), true, "unless you ask for the preview");
+	eq(isEmbeddable("Photo.PNG", "link"), true, "an image is its own content and goes on the page either way");
+	eq(isEmbeddable("Talk.mp3", "link"), true, "so does a recording");
+	eq(isEmbeddable("Rates.xlsx", "embed"), false, "a spreadsheet is never embedded, whatever PDFs are set to");
 	eq(isImageFile("shot.png"), true, "a screenshot is an image by name");
 	eq(isImageFile("clip", "image/png"), true, "or by the type the browser reports");
 	eq(isImageFile("Offer.pdf"), false, "and a PDF is neither");
-	eq(attachmentMarkdown("[[Hiring/Offer.pdf]]", "Offer.pdf"), "![[Hiring/Offer.pdf]]", "a PDF is embedded, so it reads on the page");
-	eq(attachmentMarkdown("[Offer.pdf](Hiring/Offer.pdf)", "Offer.pdf"), "![Offer.pdf](Hiring/Offer.pdf)", "the Markdown link form too");
-	eq(attachmentMarkdown("![[Hiring/Offer.pdf]]", "Offer.pdf"), "![[Hiring/Offer.pdf]]", "one already embedded is not doubled");
-	eq(attachmentMarkdown("![[Rates.xlsx]]", "Rates.xlsx"), "[[Rates.xlsx]]", "a spreadsheet embed would draw an empty frame, so it stays a link");
-	eq(attachmentMarkdown("[[Rates.xlsx]]", "Rates.xlsx"), "[[Rates.xlsx]]", "and a link stays a link");
+	eq(attachmentMarkdown("[[Hiring/Offer.pdf]]", "Offer.pdf", "link"), "[[Hiring/Offer.pdf]]", "a PDF goes in as a link");
+	eq(attachmentMarkdown("![[Hiring/Offer.pdf]]", "Offer.pdf", "link"), "[[Hiring/Offer.pdf]]", "and an embed of one is unwrapped back to a link");
+	eq(attachmentMarkdown("[[Hiring/Offer.pdf]]", "Offer.pdf", "embed"), "![[Hiring/Offer.pdf]]", "the preview setting embeds it instead");
+	eq(attachmentMarkdown("[Photo.png](Files/Photo.png)", "Photo.png", "link"), "![Photo.png](Files/Photo.png)", "an image embeds in the Markdown link form too");
+	eq(attachmentMarkdown("![[Files/Photo.png]]", "Photo.png", "link"), "![[Files/Photo.png]]", "one already embedded is not doubled");
+	eq(attachmentMarkdown("![[Rates.xlsx]]", "Rates.xlsx", "embed"), "[[Rates.xlsx]]", "a spreadsheet embed would draw an empty frame, so it stays a link");
+	eq(attachmentMarkdown("[[Rates.xlsx]]", "Rates.xlsx", "link"), "[[Rates.xlsx]]", "and a link stays a link");
+}
+
+// --- turning PDF previews already in a note back into links ---
+{
+	const note = [
+		"## Attachments",
+		"",
+		"- ![[Hiring/30-60-90.pdf]]",
+		"- ![[Scenarios.pdf|The scenarios]]",
+		"- ![[Plan.PDF#page=3]]",
+		"- ![Offer](Hiring/Offer.pdf)",
+		"- ![[Diagram.png]]",
+		"- [[Already a link.pdf]]",
+		"",
+		"```md",
+		"![[Example.pdf]]",
+		"```",
+	].join("\n");
+	const { text, count } = unembedPdfs(note);
+	eq(count, 4, "every embedded PDF is counted, and nothing else is");
+	const lines = text.split("\n");
+	eq(lines[2], "- [[Hiring/30-60-90.pdf]]", "the embed becomes a link");
+	eq(lines[3], "- [[Scenarios.pdf|The scenarios]]", "an alias survives");
+	eq(lines[4], "- [[Plan.PDF#page=3]]", "so does a page subpath, and the case of the name");
+	eq(lines[5], "- [Offer](Hiring/Offer.pdf)", "the Markdown link form converts too");
+	eq(lines[6], "- ![[Diagram.png]]", "an image is left embedded, being its own content");
+	eq(lines[7], "- [[Already a link.pdf]]", "a link is left alone");
+	eq(lines[10], "![[Example.pdf]]", "and an example inside a code fence is not an attachment");
+	eq(unembedPdfs("nothing here").count, 0, "a note with no embeds reports none");
+}
+
+// --- several files inserted at once stay in the list they landed in ---
+{
+	eq(listContinuation("plain paragraph", 1), "\n", "outside a list, items are just separate lines");
+	eq(listContinuation("", 1), "\n", "and so they are on a blank line");
+	eq(listContinuation("- first attachment", 1), "\n- ", "inside a bullet list, each carries the marker");
+	eq(listContinuation("  * nested", 1), "\n  * ", "with the same indent and the same bullet character");
+	eq(listContinuation("- ", 1), "\n- ", "an empty item still continues: the run is what supplies the text");
+	eq(listContinuation("1. first", 1), "\n2. ", "a numbered list counts on");
+	eq(listContinuation("1. first", 3), "\n4. ", "once per item, so three files do not all land on 2");
+	eq(listContinuation("  4) deep", 2), "\n  6) ", "keeping the delimiter it was written with");
+	eq(listContinuation("- [x] done", 1), "\n- [ ] ", "a checklist continues unticked, the way Enter does");
+	eq(listContinuation("-5 degrees overnight", 1), "\n", "a minus sign that starts a sentence is not a bullet");
+	eq(listContinuation("2026. What a year", 1), "\n2027. ", "a year with a period after it does read as one, as it does everywhere in Markdown");
 }
 
 // The summary runs last on purpose: any test added below it would print FAIL
