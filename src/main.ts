@@ -3097,15 +3097,19 @@ export default class PowerEditorPlugin extends Plugin {
 		});
 		// Obsidian's own right-click Insert submenu offers the things it can
 		// write from nothing (a table, a callout, a rule) and no way to bring a
-		// file in, which is where people look for one.
+		// file in, which is where people look for one. That submenu is a menu
+		// SECTION, "selection.insert.basic" beside Table and Callout, so naming
+		// it here puts this item inside it rather than in a group of its own at
+		// the bottom of the menu. The name is not in the public API; if a later
+		// version renames it, an unrecognized section is simply drawn as its own
+		// group, which is where the item would have been anyway.
 		this.registerEvent(
 			this.app.workspace.on("editor-menu", (menu, editor) => {
-				if (editor.getSelection()) return; // a selection is a formatting gesture, not an insert
 				menu.addItem((i) =>
 					i
-						.setTitle("Insert file (PDF, document)")
+						.setTitle("File (PDF, document)")
 						.setIcon("paperclip")
-						.setSection("insert")
+						.setSection("selection.insert.basic")
 						.onClick(() => this.insertFile(editor))
 				);
 			})
