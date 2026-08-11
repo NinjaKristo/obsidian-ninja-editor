@@ -65,6 +65,15 @@ import { cleanPastedHtml, escapePlaceholderTags, FENCE_LINE, fenceIndent, findPl
 import { buildMultipart, planDictationInsert } from "./dictate";
 import { editEmbed, embedInfo, removeEmbed, resizeEmbed } from "./embed";
 import {
+	attachmentFolder,
+	attachmentMarkdown,
+	freePath,
+	isEmbeddable,
+	isImageFile,
+	safeFileName,
+	type FileLocation,
+} from "./files";
+import {
 	CALLOUT_FLAVORS,
 	CalloutLead,
 	ColumnLayout,
@@ -663,6 +672,15 @@ interface PowerEditorSettings {
 	 *  list-style-type values: decimal, lower-alpha, upper-alpha, lower-roman,
 	 *  upper-roman. */
 	outlineStyles: string[];
+	/** Where a PDF or document inserted into a note is saved. Pictures are not
+	 *  covered by this and keep going wherever Obsidian already puts them. */
+	fileLocation: FileLocation;
+	/** The subfolder name for that setting's "in a subfolder" choice. `{note}`
+	 *  stands for the note's own name, so a page can keep its own folder. */
+	fileSubfolder: string;
+	/** Whether dragging or pasting a document into a note files it the same
+	 *  way the Insert file command would, rather than leaving it to Obsidian. */
+	routeDroppedFiles: boolean;
 }
 
 const DEFAULT_SETTINGS: PowerEditorSettings = {
@@ -703,6 +721,9 @@ const DEFAULT_SETTINGS: PowerEditorSettings = {
 	numberedOutline: true,
 	// Word-style cascade: 1. → a. → i. → 1. → a. → i.
 	outlineStyles: ["decimal", "lower-alpha", "lower-roman", "decimal", "lower-alpha", "lower-roman"],
+	fileLocation: "note",
+	fileSubfolder: "Files",
+	routeDroppedFiles: true,
 };
 
 const OUTLINE_CHOICES: [string, string][] = [
@@ -785,6 +806,7 @@ const BUTTON_IDS: [string, string][] = [
 	["indent", "Increase indent"],
 	["outdent", "Decrease indent"],
 	["link", "Insert link"],
+	["file", "Insert a file (PDF, document)"],
 	["codeblock", "Code block"],
 	["table", "Insert table"],
 	["hr", "Horizontal rule"],
@@ -826,7 +848,7 @@ const DEFAULT_BUTTON_ORDER: string[] = [
 	"bold", "italic", "underline", "strike", "highlight", "code", "color", "fontsize", "painter", "emoji", "|",
 	"bullet", "ordered", "task", "quote", "callout", "toggle", "|",
 	"align", "indent", "outdent", "|",
-	"link", "codeblock", "table", "hr", "findreplace", "|",
+	"link", "file", "codeblock", "table", "hr", "findreplace", "|",
 	"dictate", "ai", "clear",
 ];
 
@@ -2772,6 +2794,29 @@ export default class PowerEditorPlugin extends Plugin {
 		});
 
 		this.registerDomEvent(document, "copy", (e) => this.onEditorCopy(e));
+		// A document dragged in from the desktop, filed beside the note rather
+		// than in the vault's one attachment folder. Registered ahead of the
+		// paste handlers below so a file never reaches the HTML cleaners, which
+		// have nothing to clean and would swallow it.
+		this.registerEvent(
+			this.app.workspace.on("editor-drop", (evt, editor, info) => {
+				if (evt.defaultPrevented) return;
+				const files = this.attachable(evt.dataTransfer);
+				if (!files.length) return;
+				evt.preventDefault();
+				const at = this.dropPosition(editor, evt) ?? editor.getCursor();
+				void this.attachFiles(editor, files, info?.file?.path ?? "", at);
+			})
+		);
+		this.registerEvent(
+			this.app.workspace.on("editor-paste", (evt, editor, info) => {
+				if (evt.defaultPrevented) return;
+				const files = this.attachable(evt.clipboardData);
+				if (!files.length) return;
+				evt.preventDefault();
+				void this.attachFiles(editor, files, info?.file?.path ?? "", editor.getCursor("from"));
+			})
+		);
 		// A copy of ours coming home. Checked before anything else and regardless
 		// of the clean-paste setting: the exact Markdown is right there in the
 		// clipboard, so reading the HTML instead could only ever be a worse guess.
@@ -3044,6 +3089,27 @@ export default class PowerEditorPlugin extends Plugin {
 		this.addCommand({ id: "indent-more", name: "Increase indent", icon: "indent-increase", editorCallback: (ed) => this.indent(ed, 1) });
 		this.addCommand({ id: "indent-less", name: "Decrease indent", icon: "indent-decrease", editorCallback: (ed) => this.indent(ed, -1) });
 		this.addCommand({ id: "insert-photo", name: "Insert photo (camera or library)", icon: "camera", editorCallback: (ed) => this.insertPhoto(ed) });
+		this.addCommand({
+			id: "insert-file",
+			name: "Insert a file (PDF or document) into the note",
+			icon: "paperclip",
+			editorCallback: (ed) => this.insertFile(ed),
+		});
+		// Obsidian's own right-click Insert submenu offers the things it can
+		// write from nothing (a table, a callout, a rule) and no way to bring a
+		// file in, which is where people look for one.
+		this.registerEvent(
+			this.app.workspace.on("editor-menu", (menu, editor) => {
+				if (editor.getSelection()) return; // a selection is a formatting gesture, not an insert
+				menu.addItem((i) =>
+					i
+						.setTitle("Insert file (PDF, document)")
+						.setIcon("paperclip")
+						.setSection("insert")
+						.onClick(() => this.insertFile(editor))
+				);
+			})
+		);
 		this.addCommand({
 			id: "dismiss-keyboard",
 			name: "Dismiss the keyboard",
@@ -3455,6 +3521,115 @@ export default class PowerEditorPlugin extends Plugin {
 			})();
 		});
 		input.click();
+	}
+
+	/**
+	 * Attach a file to the note: pick it, file it beside the page, and write it
+	 * into the note where the cursor is. A PDF goes in as an embed, so it reads
+	 * on the page instead of as a link to somewhere else.
+	 *
+	 * Deliberately not restricted to PDFs by an `accept` list. The filing rule
+	 * is what this is for, and it is the same rule for a contract, a signed
+	 * scan, or a spreadsheet.
+	 */
+	insertFile(ed: Editor) {
+		const notePath = this.app.workspace.getActiveViewOfType(MarkdownView)?.file?.path ?? "";
+		const input = createEl("input", { type: "file" });
+		input.multiple = true;
+		input.addEventListener("change", () => {
+			const files = Array.from(input.files ?? []);
+			// "from", so a stray selection has the file put before it rather than
+			// dropped into the middle of it
+			if (files.length) void this.attachFiles(ed, files, notePath, ed.getCursor("from"));
+		});
+		input.click();
+	}
+
+	/** Save each file, then write the lot into the note at `at`. */
+	private async attachFiles(ed: Editor, files: File[], notePath: string, at: EditorPosition) {
+		const written: string[] = [];
+		let folder = "";
+		let last = "";
+		let anyEmbed = false;
+		for (const f of files) {
+			try {
+				const saved = await this.saveAttachment(f, notePath);
+				folder = saved.parent?.path ?? "";
+				last = saved.name;
+				anyEmbed = anyEmbed || isEmbeddable(saved.name);
+				written.push(attachmentMarkdown(this.app.fileManager.generateMarkdownLink(saved, notePath), saved.name));
+			} catch (e) {
+				new Notice(`Power Editor could not save ${f.name}: ${e instanceof Error ? e.message : String(e)}`, 8000);
+			}
+		}
+		if (!written.length) return;
+		// An embed is drawn as a block, so it needs a line of its own or the
+		// paragraph it landed in wraps around a PDF viewer. A plain link is
+		// text and belongs exactly where the cursor was.
+		if (anyEmbed) {
+			const lines = this.insertBlockAt(ed, written.join("\n\n") + "\n", at);
+			ed.setCursor({ line: at.line + lines.length - 1, ch: lines[lines.length - 1].length });
+		} else {
+			ed.replaceRange(written.join(" "), at);
+		}
+		// where it went, because "beside the note" is a setting and the whole
+		// point of the feature is knowing which folder that turned out to be
+		const where = folder || "the vault root";
+		new Notice(written.length === 1 ? `${last} saved to ${where}` : `${written.length} files saved to ${where}`);
+	}
+
+	/** Write one picked, dropped, or pasted file into the vault, in the folder
+	 *  the file-location setting asks for. */
+	private async saveAttachment(f: File, notePath: string): Promise<TFile> {
+		const name = safeFileName(f.name, `Attachment ${todayStr()}`);
+		const folder = attachmentFolder(notePath, this.settings.fileLocation, this.settings.fileSubfolder);
+		const data = await f.arrayBuffer();
+		// null means the vault's own attachment setting decides, which is also
+		// the answer when there is no note to sit beside
+		if (folder === null) {
+			const dest = await this.app.fileManager.getAvailablePathForAttachment(name, notePath);
+			return await this.app.vault.createBinary(dest, data);
+		}
+		await this.ensureFolder(folder);
+		const dest = freePath(folder, name, (p) => this.app.vault.getAbstractFileByPath(p) != null);
+		return await this.app.vault.createBinary(dest, data);
+	}
+
+	/** Create `path` and every folder above it that is missing. A subfolder
+	 *  named after the note does not exist until the first file goes in it. */
+	private async ensureFolder(path: string) {
+		let acc = "";
+		for (const part of path.split("/").filter(Boolean)) {
+			acc = acc ? `${acc}/${part}` : part;
+			if (this.app.vault.getAbstractFileByPath(acc)) continue;
+			try {
+				await this.app.vault.createFolder(acc);
+			} catch {
+				/* already created, by a parallel attach or by sync arriving mid-write */
+			}
+		}
+	}
+
+	/**
+	 * The files on a drop or a paste that this plugin should file itself.
+	 *
+	 * Pictures are left out on purpose. Screenshots are pasted constantly and
+	 * they already have a home in Obsidian's own attachment setting; the point
+	 * of this feature is that a document does not have to share it. Dragging a
+	 * note from the file explorer carries no files at all, so an internal drag
+	 * never reaches here.
+	 */
+	private attachable(dt: DataTransfer | null): File[] {
+		if (!this.settings.routeDroppedFiles || this.settings.fileLocation === "obsidian") return [];
+		return Array.from(dt?.files ?? []).filter((f) => f.name && !isImageFile(f.name, f.type));
+	}
+
+	/** Where a drop landed, which is not where the cursor is: the caret does not
+	 *  move to meet the pointer until Obsidian handles the drop itself. */
+	private dropPosition(ed: Editor, evt: DragEvent): EditorPosition | null {
+		const cm = (ed as unknown as { cm?: CMView }).cm;
+		const off = cm?.posAtCoords({ x: evt.clientX, y: evt.clientY });
+		return off == null ? null : ed.offsetToPos(off);
 	}
 
 	/** Checkbox clicks in Live Preview, seen before the editor's own handler:
@@ -5140,6 +5315,7 @@ export default class PowerEditorPlugin extends Plugin {
 			indent: () => void btn("indent", "indent-increase", "Increase indent", (ed) => this.indent(ed, 1)),
 			outdent: () => void btn("outdent", "indent-decrease", "Decrease indent", (ed) => this.indent(ed, -1)),
 			link: () => void btn("link", "link", "Insert or edit link", (ed) => this.openLinkDialog(ed), "menu"),
+			file: () => void btn("file", "paperclip", "Insert a file: a PDF reads on the page, anything else lands as a link", (ed) => this.insertFile(ed), "menu"),
 			codeblock: () => {
 				const cbBtn: HTMLElement | null = btn("codeblock", "code-square", "Code block (pick a language)", (ed) => this.insertCodeBlock(ed, rectBelow(cbBtn ?? el)), "menu");
 			},
@@ -7890,6 +8066,7 @@ class SlashSuggest extends EditorSuggest<SlashItem> {
 			{ title: "Toggle list (Notion-style)", icon: "chevron-down", action: (ed, plugin) => plugin.toggleListBlock(ed) },
 			{ title: "Code block", icon: "code-square", action: (ed, plugin) => plugin.insertCodeBlock(ed) },
 			{ title: "Code block language", icon: "code-square", action: (ed, plugin) => plugin.setCodeBlockLanguage(ed) },
+			{ title: "PDF or file attachment", icon: "paperclip", action: (ed, plugin) => plugin.insertFile(ed) },
 			snippet("Table", "table", "|     |     |     |\n| --- | --- | --- |\n|     |     |     |", 2, 2),
 			snippet("Tabs (Notion-style)", "panels-top-left", "```tabs\n--- Tab 1\n\n--- Tab 2\n\n```", 3, 0),
 			{ title: "Columns (Notion-style)", icon: "columns-2", action: (ed, plugin) => plugin.insertColumnsMenu(ed) },
@@ -8908,6 +9085,54 @@ class PowerEditorSettingTab extends PluginSettingTab {
 			},
 		];
 
+		const files: Row[] = [
+			{
+				name: "Where inserted files are saved",
+				desc: "PDFs and documents you insert, drag, or paste can sit with the note that talks about them instead of in the vault's one attachment folder. Images are not covered by this and keep going wherever Obsidian already puts them.",
+				help: "The point of this is that a contract, a signed scan, or a quote stays with its page: move or archive the note and its papers travel with it. Screenshots are left alone on purpose, since they are pasted constantly and already have a home.",
+				aliases: ["pdf", "attachment", "document"],
+				build: (st) => {
+					st.addDropdown((d) =>
+						d
+							.addOption("note", "In the same folder as the note")
+							.addOption("subfolder", "In a subfolder beside the note")
+							.addOption("obsidian", "Wherever Obsidian saves attachments")
+							.setValue(s.fileLocation)
+							.onChange((v) => {
+								s.fileLocation = v as FileLocation;
+								save();
+								this.refresh(); // the subfolder name only belongs on screen for one of these
+							})
+					);
+				},
+			},
+			...(s.fileLocation === "subfolder"
+				? [
+						{
+							name: "Subfolder name",
+							desc: "The folder to make beside the note. Write {note} for the note's own name, so each page keeps its files in a folder of its own.",
+							help: "A path works too: Files/PDFs makes both. The folder is created the first time a file goes into it, so nothing appears until you actually attach something.",
+							build: (st: Setting) => {
+								st.addText((t) =>
+									t
+										.setPlaceholder("Files")
+										.setValue(s.fileSubfolder)
+										.onChange((v) => ((s.fileSubfolder = v), save()))
+								);
+							},
+						},
+					]
+				: []),
+			{
+				name: "Catch dropped and pasted files",
+				desc: "Dragging a PDF onto a note, or pasting one copied from your computer, files it the way the setting above asks. Turn this off to insert files only from the toolbar, the slash menu, or the command.",
+				help: "Images are never caught, so a pasted screenshot behaves exactly as it always has. Dragging a note or attachment from Obsidian's own file explorer is not affected either, since that carries a link rather than a file.",
+				build: (st) => {
+					st.addToggle((t) => t.setValue(s.routeDroppedFiles).onChange((v) => ((s.routeDroppedFiles = v), save())));
+				},
+			},
+		];
+
 		const todos: Row[] = [
 			{
 				name: "Completing a to-do stamps the date",
@@ -9069,6 +9294,7 @@ class PowerEditorSettingTab extends PluginSettingTab {
 			{ id: "editing", label: "Editing", groups: [{ heading: "Editing", rows: editing }] },
 			{ id: "lists", label: "Lists", groups: [{ heading: "Numbered list outline", rows: lists }] },
 			{ id: "clipboard", label: "Clipboard", groups: [{ heading: "Clipboard", rows: clipboard }] },
+			{ id: "files", label: "Files", groups: [{ heading: "Files and attachments", rows: files }] },
 			{ id: "todos", label: "To-dos", groups: [{ heading: "To-dos", rows: todos }] },
 			{
 				id: "ai",
