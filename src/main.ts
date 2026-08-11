@@ -71,7 +71,9 @@ import {
 	isEmbeddable,
 	isImageFile,
 	safeFileName,
+	unembedPdfs,
 	type FileLocation,
+	type PdfInsert,
 } from "./files";
 import {
 	CALLOUT_FLAVORS,
@@ -151,6 +153,7 @@ import {
 	listKind,
 	olStyleForDepth,
 	olTypeForDepth,
+	listContinuation,
 	orderedListInfo,
 	setAlign,
 	setFontSize,
@@ -681,6 +684,9 @@ interface PowerEditorSettings {
 	/** Whether dragging or pasting a document into a note files it the same
 	 *  way the Insert file command would, rather than leaving it to Obsidian. */
 	routeDroppedFiles: boolean;
+	/** Whether an inserted PDF is a link that opens it, or an embedded viewer
+	 *  drawing its pages in the note. */
+	pdfInsert: PdfInsert;
 }
 
 const DEFAULT_SETTINGS: PowerEditorSettings = {
@@ -724,6 +730,7 @@ const DEFAULT_SETTINGS: PowerEditorSettings = {
 	fileLocation: "note",
 	fileSubfolder: "Files",
 	routeDroppedFiles: true,
+	pdfInsert: "link",
 };
 
 const OUTLINE_CHOICES: [string, string][] = [
@@ -3095,6 +3102,24 @@ export default class PowerEditorPlugin extends Plugin {
 			icon: "paperclip",
 			editorCallback: (ed) => this.insertFile(ed),
 		});
+		// For notes written before the link setting existed, or under the other
+		// choice: the file stays exactly where it is, only the preview goes.
+		this.addCommand({
+			id: "unembed-pdfs",
+			name: "PDFs: turn embedded previews into links (this note)",
+			icon: "paperclip",
+			editorCallback: (ed) => {
+				const { text, count } = unembedPdfs(ed.getValue());
+				if (!count) {
+					new Notice("No embedded PDFs in this note.");
+					return;
+				}
+				const cursor = ed.getCursor();
+				ed.setValue(text);
+				ed.setCursor(cursor);
+				new Notice(count === 1 ? "One PDF is now a link." : `${count} PDFs are now links.`);
+			},
+		});
 		// Obsidian's own right-click Insert submenu offers the things it can
 		// write from nothing (a table, a callout, a rule) and no way to bring a
 		// file in, which is where people look for one. That submenu is a menu
@@ -3528,9 +3553,9 @@ export default class PowerEditorPlugin extends Plugin {
 	}
 
 	/**
-	 * Attach a file to the note: pick it, file it beside the page, and write it
-	 * into the note where the cursor is. A PDF goes in as an embed, so it reads
-	 * on the page instead of as a link to somewhere else.
+	 * Attach a file to the note: pick it, file it beside the page, and link it
+	 * where the cursor is. Several picked at once land as separate lines, so a
+	 * heading with four attachments under it reads as four bullets.
 	 *
 	 * Deliberately not restricted to PDFs by an `accept` list. The filing rule
 	 * is what this is for, and it is the same rule for a contract, a signed
@@ -3555,26 +3580,36 @@ export default class PowerEditorPlugin extends Plugin {
 		let folder = "";
 		let last = "";
 		let anyEmbed = false;
+		const pdf = this.settings.pdfInsert;
 		for (const f of files) {
 			try {
 				const saved = await this.saveAttachment(f, notePath);
 				folder = saved.parent?.path ?? "";
 				last = saved.name;
-				anyEmbed = anyEmbed || isEmbeddable(saved.name);
-				written.push(attachmentMarkdown(this.app.fileManager.generateMarkdownLink(saved, notePath), saved.name));
+				anyEmbed = anyEmbed || isEmbeddable(saved.name, pdf);
+				written.push(attachmentMarkdown(this.app.fileManager.generateMarkdownLink(saved, notePath), saved.name, pdf));
 			} catch (e) {
 				new Notice(`Power Editor could not save ${f.name}: ${e instanceof Error ? e.message : String(e)}`, 8000);
 			}
 		}
 		if (!written.length) return;
 		// An embed is drawn as a block, so it needs a line of its own or the
-		// paragraph it landed in wraps around a PDF viewer. A plain link is
-		// text and belongs exactly where the cursor was.
+		// paragraph it landed in wraps around a viewer. A link is text and
+		// belongs exactly where the cursor was, one line per file so a heading
+		// with four attachments under it reads as four bullets.
 		if (anyEmbed) {
 			const lines = this.insertBlockAt(ed, written.join("\n\n") + "\n", at);
 			ed.setCursor({ line: at.line + lines.length - 1, ch: lines[lines.length - 1].length });
 		} else {
-			ed.replaceRange(written.join(" "), at);
+			const line = ed.getLine(at.line);
+			const run = written.map((w, i) => (i ? listContinuation(line, i) + w : w)).join("");
+			ed.replaceRange(run, at);
+			const tail = run.slice(run.lastIndexOf("\n") + 1);
+			ed.setCursor(
+				written.length > 1
+					? { line: at.line + written.length - 1, ch: tail.length }
+					: { line: at.line, ch: at.ch + run.length }
+			);
 		}
 		// where it went, because "beside the note" is a setting and the whole
 		// point of the feature is knowing which folder that turned out to be
@@ -5319,7 +5354,7 @@ export default class PowerEditorPlugin extends Plugin {
 			indent: () => void btn("indent", "indent-increase", "Increase indent", (ed) => this.indent(ed, 1)),
 			outdent: () => void btn("outdent", "indent-decrease", "Decrease indent", (ed) => this.indent(ed, -1)),
 			link: () => void btn("link", "link", "Insert or edit link", (ed) => this.openLinkDialog(ed), "menu"),
-			file: () => void btn("file", "paperclip", "Insert a file: a PDF reads on the page, anything else lands as a link", (ed) => this.insertFile(ed), "menu"),
+			file: () => void btn("file", "paperclip", "Attach a file: it is saved with this note and linked here", (ed) => this.insertFile(ed), "menu"),
 			codeblock: () => {
 				const cbBtn: HTMLElement | null = btn("codeblock", "code-square", "Code block (pick a language)", (ed) => this.insertCodeBlock(ed, rectBelow(cbBtn ?? el)), "menu");
 			},
@@ -9090,6 +9125,24 @@ class PowerEditorSettingTab extends PluginSettingTab {
 		];
 
 		const files: Row[] = [
+			{
+				name: "Inserting a PDF",
+				desc: "A link opens the PDF when you click it, so several of them read as a short list under a heading. An embed draws the pages in the note itself, which suits one document you want to read in place.",
+				help: "This is only about PDFs. Pictures, audio, and video always go in as themselves, and a file Obsidian cannot draw is always a link.",
+				aliases: ["pdf", "embed", "attachment"],
+				build: (st) => {
+					st.addDropdown((d) =>
+						d
+							.addOption("link", "As a link that opens it")
+							.addOption("embed", "As an embedded page preview")
+							.setValue(s.pdfInsert)
+							.onChange((v) => {
+								s.pdfInsert = v as PdfInsert;
+								save();
+							})
+					);
+				},
+			},
 			{
 				name: "Where inserted files are saved",
 				desc: "PDFs and documents you insert, drag, or paste can sit with the note that talks about them instead of in the vault's one attachment folder. Images are not covered by this and keep going wherever Obsidian already puts them.",
