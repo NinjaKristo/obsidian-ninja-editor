@@ -32,6 +32,18 @@ import {
 } from "../src/blocks";
 import { resizeEmbed } from "../src/embed";
 import {
+	attachmentFolder,
+	attachmentMarkdown,
+	extOf,
+	folderOf,
+	freePath,
+	isEmbeddable,
+	isImageFile,
+	nameOf,
+	safeFileName,
+	stemOf,
+} from "../src/files";
+import {
 	editedAt,
 	GRADIENTS,
 	gradientCss,
@@ -1425,14 +1437,6 @@ eq(stripFrontmatter("Body --- with dashes"), "Body --- with dashes", "dashes mid
 	eq(markdownFromMarker(wrapWithMarkdown("<p>x</p>", "")), null, "an empty selection is not a marker");
 }
 
-// The summary runs last on purpose: any test added below it would print FAIL
-// without failing the build.
-if (fails) {
-	console.log(fails + " failure(s)");
-	process.exit(1);
-} else {
-	console.log("All tests passed.");
-}
 
 // --- drag-and-drop reordering ---
 const dnd = (from: number, before: number) => moveItem(["a", "b", "c", "d"], from, before).join("");
@@ -1516,4 +1520,68 @@ eq(moveItem(["a", "b"], 5, 0).join(""), "ab", "an out-of-range source is ignored
 	eq(setHeaderCellWidth(H, 9, 100), null, "a column that does not exist changes nothing");
 	eq(setHeaderCellWidth("plain text", 0, 100), null, "and neither does a line that is not a row");
 	eq(setHeaderCellWidth(H, 0, null), null, "clearing a width that was never set is a no-op");
+}
+
+// --- attaching a file to the note it is inserted into ---
+{
+	eq(folderOf("Hiring/Stijn Hendrikse.md"), "Hiring", "the folder a note lives in");
+	eq(folderOf("Top Level.md"), "", "a note at the root has the root folder, which is not nothing");
+	eq(nameOf("Hiring/Stijn Hendrikse.md"), "Stijn Hendrikse.md", "and its file name");
+	eq(extOf("Offer.PDF"), "pdf", "an extension reads lower case whatever was typed");
+	eq(extOf("README"), "", "a name with no dot has no extension");
+	eq(extOf(".gitignore"), "", "a leading dot is a name, not a type");
+	eq(stemOf("Hiring/Master Agreement.pdf"), "Master Agreement", "the name without its extension");
+
+	// where it goes
+	eq(attachmentFolder("iRely/Hiring/Stijn.md", "note", "Files"), "iRely/Hiring", "beside the note is the note's own folder");
+	eq(attachmentFolder("iRely/Hiring/Stijn.md", "subfolder", "Files"), "iRely/Hiring/Files", "a subfolder hangs off that same folder");
+	eq(attachmentFolder("iRely/Hiring/Stijn.md", "subfolder", "{note} files"), "iRely/Hiring/Stijn files", "{note} stands for the note's own name");
+	eq(attachmentFolder("iRely/Hiring/Stijn.md", "subfolder", "Files/PDFs"), "iRely/Hiring/Files/PDFs", "a nested subfolder stays nested");
+	eq(attachmentFolder("iRely/Hiring/Stijn.md", "subfolder", "  "), "iRely/Hiring", "an empty subfolder name means beside the note");
+	eq(attachmentFolder("Notes.md", "subfolder", "Files"), "Files", "a note at the root puts its subfolder at the root");
+	eq(attachmentFolder("iRely/Hiring/Stijn.md", "obsidian", "Files"), null, "Obsidian's own setting is left to answer for itself");
+	eq(attachmentFolder("", "note", "Files"), null, "and it answers when there is no note to sit beside");
+	eq(attachmentFolder("A/B.md", "subfolder", "Fi:le*s"), "A/Fi-le-s", "a subfolder name is cleaned the way a file name is");
+
+	// what it ends up called
+	eq(safeFileName("Master Agreement.pdf", "x"), "Master Agreement.pdf", "an ordinary name is left alone, spaces and all");
+	eq(safeFileName("Q3: Plan?.pdf", "x"), "Q3- Plan-.pdf", "characters Windows refuses are replaced, not dropped");
+	eq(safeFileName("Rate [2026] #final.pdf", "x"), "Rate -2026- -final.pdf", "and so are the ones that would break a wikilink");
+	eq(safeFileName("C:\\Users\\steve\\Offer.pdf", "x"), "Offer.pdf", "a full path arrives as just the file");
+	eq(safeFileName("  spaced.pdf  ", "x"), "spaced.pdf", "surrounding space goes");
+	eq(safeFileName("trailing.", "x"), "trailing", "so does a trailing dot, which Windows drops behind your back");
+	eq(safeFileName("???", "Attachment.pdf"), "---", "a name made only of bad characters still names something");
+	eq(safeFileName("", "Attachment.pdf"), "Attachment.pdf", "and an empty one falls back");
+	eq(safeFileName("Übergabe Notiz.pdf", "x"), "Übergabe Notiz.pdf", "non-English names are not mangled");
+
+	// never overwriting what is already there
+	const have = new Set(["Hiring/Offer.pdf", "Hiring/Offer 1.pdf", "Notes.md"]);
+	const taken = (p: string) => have.has(p);
+	eq(freePath("Hiring", "Contract.pdf", taken), "Hiring/Contract.pdf", "a free name is used as it is");
+	eq(freePath("Hiring", "Offer.pdf", taken), "Hiring/Offer 2.pdf", "a taken name counts on past every one that is taken");
+	eq(freePath("", "Notes.md", taken), "Notes 1.md", "the root folder joins without a slash");
+	eq(freePath("Hiring", "LICENSE", taken), "Hiring/LICENSE", "a file with no extension is fine");
+	eq(freePath("", "Notes", () => false), "Notes", "and nothing is renamed when nothing collides");
+
+	// how it is written into the note
+	eq(isEmbeddable("Offer.pdf"), true, "a PDF renders on the page");
+	eq(isEmbeddable("Photo.PNG"), true, "so does an image, whatever its case");
+	eq(isEmbeddable("Rates.xlsx"), false, "a spreadsheet does not");
+	eq(isImageFile("shot.png"), true, "a screenshot is an image by name");
+	eq(isImageFile("clip", "image/png"), true, "or by the type the browser reports");
+	eq(isImageFile("Offer.pdf"), false, "and a PDF is neither");
+	eq(attachmentMarkdown("[[Hiring/Offer.pdf]]", "Offer.pdf"), "![[Hiring/Offer.pdf]]", "a PDF is embedded, so it reads on the page");
+	eq(attachmentMarkdown("[Offer.pdf](Hiring/Offer.pdf)", "Offer.pdf"), "![Offer.pdf](Hiring/Offer.pdf)", "the Markdown link form too");
+	eq(attachmentMarkdown("![[Hiring/Offer.pdf]]", "Offer.pdf"), "![[Hiring/Offer.pdf]]", "one already embedded is not doubled");
+	eq(attachmentMarkdown("![[Rates.xlsx]]", "Rates.xlsx"), "[[Rates.xlsx]]", "a spreadsheet embed would draw an empty frame, so it stays a link");
+	eq(attachmentMarkdown("[[Rates.xlsx]]", "Rates.xlsx"), "[[Rates.xlsx]]", "and a link stays a link");
+}
+
+// The summary runs last on purpose: any test added below it would print FAIL
+// without failing the build.
+if (fails) {
+	console.log(fails + " failure(s)");
+	process.exit(1);
+} else {
+	console.log("All tests passed.");
 }
