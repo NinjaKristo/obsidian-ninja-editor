@@ -11,6 +11,7 @@ Format any note from a toolbar, the way you would in Word or Notion. Your notes 
 - **Slash commands.** Type `/` for headings, lists, callouts, tables, and the rest.
 - **Clean text on screen.** Bold looks bold and highlights are painted, without `**` or `==` cluttering the line. The markers are still in the file, you just stop seeing them.
 - **Drag handles on every block.** Grab the grip in the margin to move a paragraph, list, table, or a whole heading section. Click it for a menu: turn into something else, duplicate, copy a link to it, or delete.
+- **PDFs on the page.** Insert one and it reads in the note, saved in that note's own folder rather than the vault's attachment pile.
 
 Every toolbar action is also a command, so anything can have a keyboard shortcut.
 
@@ -31,6 +32,14 @@ Copying Markdown into Outlook or Gmail usually arrives mangled: numbered lists r
 Pasting the other way is cleaned up too. Text from Word, the web, or a chat with an AI arrives as tidy Markdown with the junk stripped out, and tables rebuild as real tables instead of one run-on paragraph.
 
 Pasting back into Obsidian gives you your original Markdown, not a reading of the HTML.
+
+## PDFs and files, filed with the note
+
+Insert a PDF and it reads on the page, not as a link to somewhere else. The file itself is saved in the note's own folder, so a contract, a signed scan, or a quote stays with the page that talks about it: move or archive the note and its papers travel with it.
+
+Pictures are left alone. Screenshots keep going wherever Obsidian already puts them, which is the whole point of separating the two.
+
+It is on the toolbar, on the slash menu, on the right-click menu under Insert, and as a command. Dragging a document onto a note or pasting one copied from your computer files it the same way. Settings offer a subfolder instead, `{note}` included if you want each page to keep its own folder, and Obsidian's attachment folder if you would rather nothing changed.
 
 ## Images and tables
 
@@ -62,7 +71,7 @@ Uses your own Anthropic key. The default model costs pennies.
 
 ## Settings
 
-Toolbar on or off (separately on mobile), which buttons appear, the selection bubble, block handles, clean paste, line spacing, dictation, keys and models for AI, and your own AI actions.
+Toolbar on or off (separately on mobile), which buttons appear, the selection bubble, block handles, clean paste, where inserted files are saved, line spacing, dictation, keys and models for AI, and your own AI actions.
 
 Two spacing settings deserve a mention. Markdown needs a blank line under every heading and on both sides of every table, and in editing view each of those takes up a full line. **Space under headings** and **Space around tables** shrink exactly those gaps and nothing else. The file is untouched, so the Markdown still works everywhere.
 
