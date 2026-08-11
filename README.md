@@ -11,7 +11,7 @@ Format any note from a toolbar, the way you would in Word or Notion. Your notes 
 - **Slash commands.** Type `/` for headings, lists, callouts, tables, and the rest.
 - **Clean text on screen.** Bold looks bold and highlights are painted, without `**` or `==` cluttering the line. The markers are still in the file, you just stop seeing them.
 - **Drag handles on every block.** Grab the grip in the margin to move a paragraph, list, table, or a whole heading section. Click it for a menu: turn into something else, duplicate, copy a link to it, or delete.
-- **PDFs on the page.** Insert one and it reads in the note, saved in that note's own folder rather than the vault's attachment pile.
+- **Attachments that stay with the note.** Insert a PDF and it lands as a link that opens it, with the file saved in that note's own folder rather than the vault's attachment pile.
 
 Every toolbar action is also a command, so anything can have a keyboard shortcut.
 
@@ -35,7 +35,9 @@ Pasting back into Obsidian gives you your original Markdown, not a reading of th
 
 ## PDFs and files, filed with the note
 
-Insert a PDF and it reads on the page, not as a link to somewhere else. The file itself is saved in the note's own folder, so a contract, a signed scan, or a quote stays with the page that talks about it: move or archive the note and its papers travel with it.
+Attach a PDF and it goes in as a link that opens the document, so a heading with four attachments under it reads as four lines rather than four scrolling previews. Pick several at once and they land as separate bullets. If you would rather read one in place, a setting embeds the pages instead.
+
+The file itself is saved in the note's own folder, so a contract, a signed scan, or a quote stays with the page that talks about it: move or archive the note and its papers travel with it.
 
 Pictures are left alone. Screenshots keep going wherever Obsidian already puts them, which is the whole point of separating the two.
 
