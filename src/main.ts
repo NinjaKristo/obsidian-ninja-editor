@@ -1711,6 +1711,7 @@ class CoverModal extends Modal {
  *  then re-renders every visible dashboard. */
 class TodoBlock extends MarkdownRenderChild {
 	private timer: number | null = null;
+	private disposed = false;
 
 	constructor(
 		el: HTMLElement,
@@ -1721,6 +1722,7 @@ class TodoBlock extends MarkdownRenderChild {
 	}
 
 	onload() {
+		this.disposed = false;
 		void this.render();
 		this.registerEvent(this.plugin.app.vault.on("modify", () => this.queue()));
 		this.registerEvent(this.plugin.app.vault.on("delete", () => this.queue()));
@@ -1728,8 +1730,21 @@ class TodoBlock extends MarkdownRenderChild {
 	}
 
 	private queue() {
+		if (this.disposed) return;
 		if (this.timer != null) window.clearTimeout(this.timer);
-		this.timer = window.setTimeout(() => void this.render(), 400);
+		this.timer = window.setTimeout(() => {
+			this.timer = null;
+			if (this.plugin.vaultUiSettling()) {
+				this.queue();
+				return;
+			}
+			void this.render();
+		}, this.plugin.vaultUiDelay());
+	}
+
+	onunload() {
+		this.disposed = true;
+		if (this.timer != null) window.clearTimeout(this.timer);
 	}
 
 	private async render() {
@@ -1849,6 +1864,7 @@ class TodoBlock extends MarkdownRenderChild {
  *  Today, and the next seven days, with the same live rows as dashboards. */
 class TodayView extends ItemView {
 	private timer: number | null = null;
+	private closed = false;
 
 	constructor(
 		leaf: WorkspaceLeaf,
@@ -1870,6 +1886,7 @@ class TodayView extends ItemView {
 	}
 
 	async onOpen() {
+		this.closed = false;
 		await this.render();
 		this.registerEvent(this.plugin.app.vault.on("modify", () => this.queue()));
 		this.registerEvent(this.plugin.app.vault.on("delete", () => this.queue()));
@@ -1877,8 +1894,21 @@ class TodayView extends ItemView {
 	}
 
 	private queue() {
+		if (this.closed) return;
 		if (this.timer != null) window.clearTimeout(this.timer);
-		this.timer = window.setTimeout(() => void this.render(), 400);
+		this.timer = window.setTimeout(() => {
+			this.timer = null;
+			if (this.plugin.vaultUiSettling()) {
+				this.queue();
+				return;
+			}
+			void this.render();
+		}, this.plugin.vaultUiDelay());
+	}
+
+	async onClose() {
+		this.closed = true;
+		if (this.timer != null) window.clearTimeout(this.timer);
 	}
 
 	private async render() {
@@ -1911,6 +1941,7 @@ class TodayView extends ItemView {
  *  Click a row to jump to it, or resolve it right here. */
 class CommentsView extends ItemView {
 	private timer: number | null = null;
+	private closed = false;
 
 	constructor(
 		leaf: WorkspaceLeaf,
@@ -1932,6 +1963,7 @@ class CommentsView extends ItemView {
 	}
 
 	async onOpen() {
+		this.closed = false;
 		await this.render();
 		this.registerEvent(this.plugin.app.vault.on("modify", () => this.queue()));
 		this.registerEvent(this.plugin.app.vault.on("delete", () => this.queue()));
@@ -1939,8 +1971,21 @@ class CommentsView extends ItemView {
 	}
 
 	private queue() {
+		if (this.closed) return;
 		if (this.timer != null) window.clearTimeout(this.timer);
-		this.timer = window.setTimeout(() => void this.render(), 400);
+		this.timer = window.setTimeout(() => {
+			this.timer = null;
+			if (this.plugin.vaultUiSettling()) {
+				this.queue();
+				return;
+			}
+			void this.render();
+		}, this.plugin.vaultUiDelay());
+	}
+
+	async onClose() {
+		this.closed = true;
+		if (this.timer != null) window.clearTimeout(this.timer);
 	}
 
 	private async render() {
@@ -2159,6 +2204,7 @@ export default class PowerEditorPlugin extends Plugin {
 	private baseline: PowerEditorSettings = DEFAULT_SETTINGS;
 	private bars = new WeakMap<MarkdownView, Bar>();
 	private stateTimer: number | null = null;
+	private pageChromeTimer: number | null = null;
 	/* dictation state */
 	private recorder: MediaRecorder | null = null;
 	private recChunks: Blob[] = [];
@@ -3220,13 +3266,13 @@ export default class PowerEditorPlugin extends Plugin {
 				if (f) this.openVerifyMenu(undefined, f);
 			},
 		});
-		this.registerEvent(this.app.workspace.on("file-open", () => this.updatePageChrome()));
-		this.registerEvent(this.app.workspace.on("layout-change", () => this.updatePageChrome()));
-		this.registerEvent(this.app.metadataCache.on("changed", () => this.updatePageChrome()));
-		this.app.workspace.onLayoutReady(() => this.updatePageChrome());
+		this.registerEvent(this.app.workspace.on("file-open", () => this.queuePageChrome()));
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.queuePageChrome()));
+		this.registerEvent(this.app.metadataCache.on("changed", () => this.queuePageChrome()));
+		this.app.workspace.onLayoutReady(() => this.queuePageChrome());
 		// mtime moves when the file is written, which metadataCache "changed"
 		// does not always follow (a body edit with no frontmatter change)
-		this.registerEvent(this.app.vault.on("modify", () => this.updatePageChrome()));
+		this.registerEvent(this.app.vault.on("modify", () => this.queuePageChrome()));
 		// "3 minutes ago" has to age on its own or it stays "just now" for the
 		// whole session. A minute is as fine as the wording ever gets.
 		this.registerInterval(window.setInterval(() => this.refreshEditedStamps(), 60_000));
@@ -3425,6 +3471,7 @@ export default class PowerEditorPlugin extends Plugin {
 	}
 
 	onunload() {
+		if (this.pageChromeTimer != null) window.clearTimeout(this.pageChromeTimer);
 		if (this.recorder) {
 			this.recorder.onstop = null;
 			this.recorder.stream.getTracks().forEach((t) => t.stop());
@@ -4604,6 +4651,34 @@ export default class PowerEditorPlugin extends Plugin {
 			this.applyPageLayout(view);
 			this.applyEditedStamp(view);
 		}
+	}
+
+	private queuePageChrome() {
+		if (this.pageChromeTimer != null) window.clearTimeout(this.pageChromeTimer);
+		this.pageChromeTimer = window.setTimeout(() => {
+			this.pageChromeTimer = null;
+			if (this.vaultUiSettling()) {
+				this.queuePageChrome();
+				return;
+			}
+			this.updatePageChrome();
+		}, Platform.isMobileApp ? 500 : 50);
+	}
+
+	/** Visible whole-vault widgets use this to wait through a phone sync burst
+	 *  and render once from the settled vault. */
+	vaultUiSettling(): boolean {
+		if (!Platform.isMobileApp) return false;
+		const pc = (
+			this.app as unknown as {
+				plugins?: { plugins?: Record<string, { running?: boolean; mobileStartupPending?: boolean }> };
+			}
+		).plugins?.plugins?.powerconnect;
+		return pc?.running === true || pc?.mobileStartupPending === true;
+	}
+
+	vaultUiDelay(): number {
+		return Platform.isMobileApp ? 750 : 400;
 	}
 
 	/** Toggle the per-note width, font, and cover-overlay classes on the view. */
