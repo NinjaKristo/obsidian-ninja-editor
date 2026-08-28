@@ -16,7 +16,7 @@ import {
 	Menu,
 	MenuItem,
 	Modal,
-	Notice,
+	Notice as ObsidianNotice,
 	Platform,
 	Plugin,
 	PluginSettingTab,
@@ -32,6 +32,16 @@ import {
 	requestUrl,
 	setIcon,
 } from "obsidian";
+
+let pluginNoticesEnabled = () => true;
+
+class Notice extends ObsidianNotice {
+	constructor(message: string | DocumentFragment, duration?: number) {
+		super(message, duration);
+		if (!pluginNoticesEnabled()) this.hide();
+	}
+}
+
 import {
 	BlockKind,
 	BlockRange,
@@ -687,6 +697,7 @@ interface PowerEditorSettings {
 	/** Whether an inserted PDF is a link that opens it, or an embedded viewer
 	 *  drawing its pages in the note. */
 	pdfInsert: PdfInsert;
+	showNotifications: boolean;
 }
 
 const DEFAULT_SETTINGS: PowerEditorSettings = {
@@ -731,6 +742,7 @@ const DEFAULT_SETTINGS: PowerEditorSettings = {
 	fileSubfolder: "Files",
 	routeDroppedFiles: true,
 	pdfInsert: "link",
+	showNotifications: true,
 };
 
 const OUTLINE_CHOICES: [string, string][] = [
@@ -2529,6 +2541,7 @@ export default class PowerEditorPlugin extends Plugin {
 
 	private async boot() {
 		await this.loadSettings();
+		pluginNoticesEnabled = () => this.settings.showNotifications;
 		this.addSettingTab(new PowerEditorSettingTab(this));
 		// Ground-truth check for which code is actually running (Settings shows the
 		// on-disk manifest version, which can differ from the loaded module).
@@ -8838,6 +8851,16 @@ class PowerEditorSettingTab extends PluginSettingTab {
 		// whatever another device changed since this one loaded
 		const save = () => void this.plugin.persistSettings();
 		const s = this.plugin.settings;
+		const general: Row[] = [
+			{
+				name: "Show notifications",
+				desc: "Show popup notices from Power Editor. Turn off to keep Obsidian clear, especially on phones.",
+				help: "When off, Power Editor suppresses every popup notice, including progress, success, warning, and error notices.",
+				build: (st) => {
+					st.addToggle((t) => t.setValue(s.showNotifications).onChange((v) => ((s.showNotifications = v), save())));
+				},
+			},
+		];
 
 		const toolbar: Row[] = [
 			{
@@ -9413,6 +9436,7 @@ class PowerEditorSettingTab extends PluginSettingTab {
 		];
 
 		return [
+			{ id: "general", label: "General", groups: [{ heading: "Notifications", rows: general }] },
 			{
 				id: "toolbar",
 				label: "Toolbar",
