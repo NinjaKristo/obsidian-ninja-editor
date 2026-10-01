@@ -67,9 +67,7 @@ Copying unformatted text works too. The brush then holds "no formatting", which 
 
 ## AI edits
 
-The sparkle menu rewrites the selection in place: improve writing, fix grammar, make shorter, summarize, plus any custom actions you add yourself. Two more need no selection: continue writing, and summarize the page into bullets.
-
-Uses your own Anthropic key. The default model costs pennies.
+The sparkle menu rewrites the selection in place: improve writing, fix grammar, make shorter, summarize, plus any custom actions you add yourself. Two more need no selection: continue writing, and summarize the page into bullets.  Uses Local AI models, API endpoints, & claude pro, chatgpt plus.
 
 ## Settings
 
