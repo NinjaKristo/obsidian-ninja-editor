@@ -1,4 +1,4 @@
-![logo](docs/images/logo-noBG-small.png)# Ninja Editor for Obsidian
+# Ninja Editor for Obsidian <img src="docs/images/logo-noBG-small.png" width="36" alt="Ninja Logo">
 
 Format any note from a toolbar, the way you would in Word or Notion. Your notes stay plain Markdown, so nothing is locked in and every other plugin keeps working.
 
