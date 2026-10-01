@@ -2,7 +2,7 @@
 
 Format any note from a toolbar, the way you would in Word or Notion. Your notes stay plain Markdown, so nothing is locked in and every other plugin keeps working.
 
-![A note in editing view with the formatting toolbar across the top, a rendered callout with a drag handle beside it, nested and numbered lists, checkboxes, and a syntax-highlighted TypeScript block with line numbers](docs/images/power-editor.png)
+![wysiwyg with AI assistant](docs/images/project-logo.png)
 
 ## What you get
 
