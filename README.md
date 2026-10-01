@@ -1,4 +1,4 @@
-# Ninja Editor
+# Ninja Editor for Obsidian
 
 Format any note from a toolbar, the way you would in Word or Notion. Your notes stay plain Markdown, so nothing is locked in and every other plugin keeps working.
 
